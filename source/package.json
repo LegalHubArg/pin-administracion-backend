@@ -34,7 +34,7 @@
     "nodemailer-smtp-transport": "^2.7.4",
     "pdf-lib": "^1.17.1",
     "pdf2json": "^2.0.1",
-    "sanitize-html": "^2.7.0",
+    "sanitize-html": "^2.12.1",
     "validate.js": "^0.13.1",
     "xlsx": "^0.18.5",
     "xml2js": "^0.4.23",
