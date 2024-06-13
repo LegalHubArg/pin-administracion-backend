@@ -1071,6 +1071,12 @@ async function aprobarNorma(request) {
         ])
             .catch(err => { throw err });
 
+
+        //Chequeo previo si es desde-hasta
+        let metadatosNormaAux = await conn.query('SELECT * FROM normas_metadatos WHERE idNorma=? AND estado=1', [request.idNorma]);
+        if (metadatosNormaAux[0]?.fechaDesde !== null && metadatosNormaAux[0]?.fechaHasta !== null){
+            request.idNormasEstadoTipo = 8
+        }
         //Asigno la norma a un boletin, si corresponde
         if (request.idNormasEstadoTipo === 8) {
 
@@ -1837,7 +1843,7 @@ function traerAvisoAsociado(request) {
 }
 
 async function revisarNorma(request) {
-    let sql = `UPDATE normas_metadatos SET normaRevisada=true WHERE idNorma=? AND estado=1`;
+    let sql = `UPDATE normas_metadatos SET normaRevisada=true, fechaRevisado = CURDATE() WHERE idNorma=? AND estado=1`;
     let params = [request.idNorma]
     let conn = await connection.poolPromise.getConnection().catch(e => { throw e });
     try {

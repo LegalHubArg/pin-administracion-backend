@@ -386,7 +386,7 @@ async function borrarNormaTipoController(req, res, next) {
 
   let respuesta = await borrarNormaTipo(request)
     .then((resp) => {
-      console.log(resp)
+      // console.log(resp)
     }
     )
     .catch((e) => {
@@ -482,7 +482,7 @@ async function borrarNormaSubtipoController(req, res, next) {
 
   let respuesta = await borrarNormaSubtipo(request)
     .then((resp) => {
-      console.log(resp)
+      // console.log(resp)
     }
     )
     .catch((e) => {
@@ -567,7 +567,7 @@ async function borrarNormaController(req, res, next) {
 
   let respuesta = await borrarNorma(request)
     .then((resp) => {
-      console.log(resp)
+      // console.log(resp)
     }
     )
     .catch((e) => {
@@ -2403,7 +2403,6 @@ async function traerNormasPorFechaPublicacionSeccionController(req, res, next) {
     let request = {};
     request.fechaPublicacion = req.body.fechaPublicacion;
     request.seccion = req.body.seccion;
-    console.log(req.body.fechaPublicacion)
     let respt = await traerNormasPorFechaPublicacionSeccion(request)
       .catch((e) => {
         throw e
@@ -2870,24 +2869,43 @@ async function firmarBoletinController(req, res, next) {
     request.boletinNumero = boletin.boletinNumero;
     request.boletinDocumento = boletin.boletinDocumento;
 
+    let momentoActual = moment().format("DDMMYYYYHHmmss");
+
+    console.log("Obteniendo data de normas...")
     //Traigo la data de las normas para publicarlas
     for (let i = 0; i < request.normas.length; i++) {
       let idNorma = parseInt(request.normas[i]);
 
+      console.log("Obteniendo norma por id...")
       let normaCompleta = await traerNormaPorId({ idNorma })
+
+      console.log("Obteniendo los anexos de la norma...")
       let anexosNorma = await traerAnexosPorIdNorma({ idNorma })
 
+      console.log("Obteniendo la digitalización de la norma...")
       const digi = await traerDigitalizacionPorIdNorma({ idNorma });
+      
+      console.log("Obteniendo la vista previa de la norma...")
       let pdfNorma = await traerVistaPreviaNorma({ norma: digi.normaDocumento })
-      pdfNorma = 'data:application/pdf;base64,' + pdfNorma;
 
-      const pdfNormaS3 = await subirPdfBucketS3(pdfNorma, request.cuit, process.env.S3_BO_FIRMADOS + normaCompleta[0].normaAcronimoReferencia + `-${request.boletinNumero}.pdf`, true)
+      // pdfNorma = 'data:application/pdf;base64,' + pdfNorma;
+      let nombrePdfSinRuta = normaCompleta[0].normaAcronimoReferencia + `-${request.boletinNumero}-${momentoActual}.pdf`
+      let nombrePdfNormaS3 = process.env.S3_BO_FIRMADOS + normaCompleta[0].normaAcronimoReferencia + `-${request.boletinNumero}-${momentoActual}.pdf`
 
-      normaCompleta[0].pdfNormaS3 = normaCompleta[0].normaAcronimoReferencia + `-${request.boletinNumero}.pdf`;
+      console.log("SUBIENDO: pdf de la norma al bucket")
+      const pdfNormaS3 = await subirPdfBucketS3(pdfNorma, request.cuit, nombrePdfNormaS3, true)
 
+      normaCompleta[0].pdfNormaS3 = normaCompleta[0].normaAcronimoReferencia + `-${request.boletinNumero}-${momentoActual}.pdf`;
+
+      console.log("entrando al bucle en busca de anexos para copiarlos...")
       for (let j = 0; j < anexosNorma.length; j++) {
-        let nombreAnexo = normaCompleta[0].normaAcronimoReferencia + `-${request.boletinNumero}` + (j === 0 ? '-ANX.pdf' : `-ANX-${j}.pdf`)
+        console.log(`en proceso de copiar anexos... ${j}/${anexosNorma.length}`)
+        let nombreAnexo = normaCompleta[0].normaAcronimoReferencia + `-${request.boletinNumero}-${momentoActual}` + (j === 0 ? '-ANX.pdf' : `-ANX-${j}.pdf`)
+        
+        console.log(`Copiando`)
         await copiarArchivo(process.env.S3_BO_NORMAS + anexosNorma[j].normaAnexoArchivoS3Key, process.env.S3_BO_FIRMADOS + nombreAnexo)
+
+        console.log("copiado, paso al siguiente...")
         anexosNorma[j].archivoPublico = nombreAnexo;
       }
 
@@ -2896,19 +2914,21 @@ async function firmarBoletinController(req, res, next) {
       request.normas[i] = normaCompleta[0];
     }
 
-    let boletinFirmado = await subirPdfBucketS3(req.body.archivoBoletin.base64[1], request.cuit, process.env.S3_BO_FIRMADOS + moment(request.fechaPublicacion).format('YYYYMMDD') + '.pdf', true)
-
-    request.boletinFirmado = moment(request.fechaPublicacion).format('YYYYMMDD') + '.pdf';
-
+    console.log("SUBIENDO: boletin firmado al bucket...")
+    let boletinFirmado = await subirPdfBucketS3(req.body.archivoBoletin.base64[1], request.cuit, process.env.S3_BO_FIRMADOS + moment(request.fechaPublicacion).format('YYYYMMDD') + momentoActual + '.pdf', true)
+    console.log("bueno ahora sigo con el proceso, abajo esta el request")
+    request.boletinFirmado = moment(request.fechaPublicacion).format('YYYYMMDD') + momentoActual + '.pdf';
     //Separata y otros anexos del boletin
+    console.log("entro a buscar las separatas...")
     if (request.anexos.length > 0) {
       for (let i = 0; i < request.anexos.length; i++) {
-        let nombre_del_anexo = moment(request.fechaPublicacion).format('YYYYMMDD') + (request.anexos[i].principal ? `ax.pdf` : request.anexos[i].archivo);
-        let anexoS3 = await subirPdfBucketS3(request.anexos[i].base64[1], request.cuit, nombre_del_anexo, true)
+        let nombre_del_anexo = moment(request.fechaPublicacion).format('YYYYMMDD') + momentoActual + (request.anexos[i].principal ? `ax.pdf` : request.anexos[i].archivo);
+        console.log("SUBIENDO: Separata con el nombre del anexo -> " + nombre_del_anexo)
+        let anexoS3 = await subirPdfBucketS3(request.anexos[i].base64[1], request.cuit, process.env.S3_BO_FIRMADOS + nombre_del_anexo, true) // agrego la ruta porque sino guarda en el path general "/"
         request.anexos[i].archivoS3 = anexoS3['Key'].replace(process.env.S3_BO_FIRMADOS, '');
       }
     }
-
+    console.log("Firmando boletin...")
     await firmarBoletin(request)
 
     res.status(200)
@@ -2927,6 +2947,11 @@ async function firmarBoletinController(req, res, next) {
 
 // Firma "Automatica": realiza la firma por integración con GEDO
 async function firmarBoletinGEDOController(req, res, next) {
+  let progreso = []
+  const enviarMensaje = (msg) => {
+    progreso.push(msg)
+  };
+
   console.log("-----------Firma BO con Integración GEDO-------------")
   let request = {};
   request.idBoletin = req.body.idBoletin;
@@ -2936,6 +2961,10 @@ async function firmarBoletinGEDOController(req, res, next) {
   request.cuit = req.body.cuit;
   let pdfBoletin = '';
   let pdfSeparata = '';
+
+  let momentoActual = moment().format("DDMMYYYYHHmmss");
+
+
   if ((req.ip).substring(0, 7) === "::ffff:") {
     request.ip = req.ip.substring(7);
   }
@@ -2946,59 +2975,106 @@ async function firmarBoletinGEDOController(req, res, next) {
   try {
 
     //1.Trae metadatos actuales del BO
+    
+    console.log("Obteniendo metadatos del Boletín Oficial...")
+    enviarMensaje("Obteniendo metadatos del Boletín Oficial...")
     let boletin = await traerBoletinPorId(request)
       .catch((e) => {
         throw (e)
       })
-
     request.fechaPublicacion = boletin.fechaPublicacion;
     // request.boletinNormas = boletin.normas;
     request.boletinSecciones = JSON.parse(boletin.boletinSecciones);
     request.boletinNombre = boletin.boletinNombre;
     request.boletinNumero = boletin.boletinNumero;
-    request.boletinDocumento = boletin.boletinDocumento;
+    request.boletinDocumento = boletin?.boletinDocumento || null;
     request.anexos = [];
 
+    console.log("Obteniendo el PDF del Boletín Oficial...")
+    enviarMensaje("Obteniendo el PDF del Boletín Oficial...")
     //2. Trae el pdf del Boletin
     let htmlBoletin = await traerHTMLDeUnBoletin(request)
       .catch((e) => {
         throw e
       });
 
+      console.log("Obteniendo normas ordenadas del Boletín Oficial...")
+      enviarMensaje("Obteniendo normas ordenadas del Boletín Oficial...")
     let normas = await traerNormasOrdenadasDeUnBoletin(request)
       .catch((e) => {
         throw (e)
       })
 
     if (htmlBoletin && normas) {
+      console.log("Documento y normas obtenidas, procesando datos...")
+      enviarMensaje("Documento y normas obtenidas, procesando datos...")
       request.htmlBoletin = htmlBoletin[0].boletinDocumento;
       request.normas = normas.normas;
+
       for (let i = 0; i < request.normas.length; i++) {
-        console.log("(bo-controller) norma: " + request.normas[i].normaAcronimoReferencia)
+        console.log(`Cargando normas... (${i}/${request.normas.length})`)
+        enviarMensaje(`Cargando normas...`)
+
         let idNorma = parseInt(request.normas[i].idNorma);
 
-
+        console.log("Obteniendo la digitalización de la norma...")
+        enviarMensaje("Obteniendo la digitalización de la norma...")
         const digi = await traerDigitalizacionPorIdNorma({ idNorma });
-        let pdfNorma = await traerVistaPreviaNorma({ norma: digi.normaDocumento, boletin: boletin })
-        // pdfNorma = 'data:application/pdf;base64,' + pdfNorma;
 
-        let nombre_norma = request.normas[i].normaAcronimoReferencia + `-${request.boletinNumero}.pdf`;
+        console.log("Obteniendo la vista previa de la norma...")
+        enviarMensaje("Obteniendo la vista previa de la norma...")
+        let pdfNorma = await traerVistaPreviaNorma({ norma: digi.normaDocumento, boletin: boletin })
+        //  pdfNorma = 'data:application/pdf;base64,' + pdfNorma;
+
+        console.log("Asignando el nombre del archivo de la norma...")
+        enviarMensaje("Asignando el nombre del archivo de la norma...")
+        let nombre_norma = request.normas[i].normaAcronimoReferencia + `-${request.boletinNumero}-${momentoActual}.pdf`;
+
+        console.log("Subiendo el pdf al bucket...")
+        enviarMensaje("Subiendo el PDF al almacenamiento del bucket...")
         const pdfNormaS3 = await subirPdfBucketS3(pdfNorma, request.cuit, process.env.S3_BO_FIRMADOS + nombre_norma, true)
+
+        // Manejo el error si no se puede subir un archivo (accion limitante para continuar, ya que se pierde info)
+        .catch(e=>{
+          console.error(`Error en subir al bucket el archivo de la norma:${request.normas[i]}`,e)
+          enviarMensaje(`Error en subir al bucket el archivo de la norma:${request.normas[i]}`)
+          res.status(409)
+          res.send(JSON.stringify({ mensaje: `Error al subir el archivo de la norma: ${request.normas[i].idNorma}`, error: String(e), exito:false,progreso:progreso}))
+          res.end();
+          return;
+        })
 
         request.normas[i].pdfNormaS3 = nombre_norma;
 
+        console.log("Obteniendo anexos de la norma...")
+        enviarMensaje("Obteniendo anexos de la norma...")
         let anexos = await traerAnexosPorIdNorma({ idNorma })
 
         if (anexos.length > 0) {
           for (let index = 0; index < anexos.length; index++) {
-            let nombreAnexo = request.normas[i].normaAcronimoReferencia + `-${request.boletinNumero}` + (index === 0 ? '-ANX.pdf' : `-ANX-${index}.pdf`)
-            await copiarArchivo(process.env.S3_BO_NORMAS + anexos[index].normaAnexoArchivoS3Key, process.env.S3_BO_FIRMADOS + nombreAnexo)
+            let nombreAnexo = request.normas[i].normaAcronimoReferencia + `-${request.boletinNumero}` + (index === 0 ? `-ANX-${momentoActual}.pdf` : `-ANX-${index}-${momentoActual}.pdf`)
+
+            // copiarArchivo que retorne true si salio bien, false si ocurrio un error
+            let copiaExitosa = await copiarArchivo(process.env.S3_BO_NORMAS + anexos[index].normaAnexoArchivoS3Key, process.env.S3_BO_FIRMADOS + nombreAnexo)
+
+            // Si sale mal la copia, corto el proceso, y envio al front donde fallo (que archivo)
+            if (!copiaExitosa.copiaS3) {
+              console.error(`Error al copiar el anexo de la norma ${anexos[index]?.idNorma}: ${nombreAnexo}`);
+              enviarMensaje(`Error al copiar el archivo de la norma ${anexos[index]?.idNorma} : ${nombreAnexo}`);
+              res.status(409)
+              res.send(JSON.stringify({ mensaje: `No se encontro el anexo de la norma ${anexos[index].idNorma} :${nombreAnexo}`, error: String(copiaExitosa.error), progreso:progreso,exito:false }))
+              res.end();
+              return;
+            }
+
             anexos[index].archivoPublico = nombreAnexo;
           }
 
         }
         request.normas[i].anexos = anexos;
       }
+      console.log("PROCESO TERMINADO: Obteniendo la vista previa del Boletín Oficial...")
+      enviarMensaje("Obteniendo la vista previa del Boletín Oficial...")
       pdfBoletin = await traerVistaPreviaBoletin(request)
         .catch((e) => {
           throw e
@@ -3006,6 +3082,8 @@ async function firmarBoletinGEDOController(req, res, next) {
     }
 
     //3. Trae el pdf de la Separata
+    console.log("Obteniendo el PDF de la separata...")
+    enviarMensaje("Obteniendo el PDF de la Separata...")
     pdfSeparata = await traerSeparataPDF(request)
       .catch((e) => {
         throw e
@@ -3013,17 +3091,23 @@ async function firmarBoletinGEDOController(req, res, next) {
 
 
     //4. Manda a firmar el BO por integracion GEDO
+    console.log("Obteniendo la firma de GEDO al Boletín...")
+    enviarMensaje("Obteniendo la firma de GEDO al Boletín...")
     let boletinGEDO = await firmaDirectaDocumento(pdfBoletin, 'BO', request.cuit)
       .catch((e) => {
         throw (e)
       })
 
-    //5. Manda a firmar separata 
+    //5. Manda a firmar separata
+    console.log("Obteniendo la firma de GEDO a la separata...")
+    enviarMensaje("Obteniendo la firma de GEDO a la separata...")
     let separataGEDO = await firmaDirectaDocumento(pdfSeparata, 'SEPBO', request.cuit)
       .catch((e) => {
         throw (e)
       })
 
+    console.log("Comprobando si el boletín tiene segunda edición...")
+    enviarMensaje("Comprobando si el boletín tiene segunda edición...")
     let esSegundaEdicion = await traerBoletinPorFechaPublicacion({ fechaPublicacion: request.fechaPublicacion })
     let nombreBoletin = moment(boletin.fechaPublicacion).format('YYYYMMDD');
     if (esSegundaEdicion?.length > 0) {
@@ -3032,39 +3116,42 @@ async function firmarBoletinGEDOController(req, res, next) {
 
 
     //6. Sube pdf's al Bucket
-    let boletinFirmado = await subirPdfBucketS3(boletinGEDO.base64, request.cuit, process.env.S3_BO_FIRMADOS + nombreBoletin + '.pdf', true)
+    console.log("Subiendo los PDF al bucket...")
+    enviarMensaje("Subiendo los PDF al bucket...")
+    let archivoBoletinSinRuta = nombreBoletin + momentoActual
+    let nombreArchivoBoletin = process.env.S3_BO_FIRMADOS + nombreBoletin + momentoActual
+    await subirPdfBucketS3(boletinGEDO.base64, request.cuit, nombreArchivoBoletin + '.pdf', true) // aca hago unico el archivo q subo al s3
       .catch((e) => {
         throw (e)
       });
 
-    let separataFirmada = await subirPdfBucketS3(separataGEDO.base64, request.cuit, process.env.S3_BO_FIRMADOS + nombreBoletin + "ax.pdf", true)
+    await subirPdfBucketS3(separataGEDO.base64, request.cuit, nombreArchivoBoletin + "ax.pdf", true) // aca hago unico el archivo q subo al s3
       .catch((e) => {
         throw (e)
       });
 
-    request.boletinFirmado = nombreBoletin + '.pdf';
+    request.boletinFirmado = archivoBoletinSinRuta + '.pdf';
     request.anexos.push({
       nombre: null,
-      archivo: nombreBoletin + "ax.pdf",
-      archivoS3: nombreBoletin + "ax.pdf",
+      archivo: archivoBoletinSinRuta + "ax.pdf",
+      archivoS3: archivoBoletinSinRuta + "ax.pdf",
       principal: 1
     })
 
     //7. Actualizacion de estado y metadatos en la DB
+    console.log("Actualizando el estado del boletín...")
+    enviarMensaje("Actualizando el estado del boletín...")
     await firmarBoletin(request)
       .catch((e) => {
         throw (e)
       });
 
-    res.status(200)
-    res.send(JSON.stringify({ mensaje: `PIN: Boletin firmado con éxito` }))
-    res.end();
-    return;
+    return res.status(200).send(JSON.stringify({ mensaje: `PIN: Boletin firmado con éxito`, exito: true, progreso}))
   }
   catch (e) {
     console.log(e)
     res.status(409)
-    res.send(JSON.stringify({ mensaje: `Error al firmar Boletin.`, data: String(e) }))
+    res.send(JSON.stringify({ mensaje: `Error al firmar Boletin.`, data: String(e), progreso }))
     res.end();
     return;
   }

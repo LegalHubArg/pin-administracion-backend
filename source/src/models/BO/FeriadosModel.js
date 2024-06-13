@@ -3,19 +3,19 @@ const { guardarLog } = require('../../helpers/logs')
 
 function traerFeriadosPorAnio(request) {
     return new Promise((resolve, reject) => {
-        sql = `SELECT idFeriado, DATE(feriadoFecha), feriado
+        sql = `SELECT idFeriado, DATE(feriadoFecha) as feriadoFecha, feriado
         FROM bo_feriados
         WHERE
         estado = 1
-        /*AND YEAR(feriadoFecha) = ?*/
+        AND YEAR(feriadoFecha) = ?
         ORDER BY feriadoFecha DESC`;
 
-        // params = [request.fechaAnio];
+        params = [request.fechaAnio];
         connection.pool.getConnection(function (err, conn) {
             if (err) throw err; // not connected!
 
             // Use the connection
-            conn.query(sql, /* params,  */function (error, results, fields) {
+            conn.query(sql, params, function (error, results, fields) {
                 conn.release();
                 if (err) {
                     reject(err);
@@ -30,7 +30,6 @@ function traerFeriadosPorAnio(request) {
 }
 
 function traerFeriadoPorFecha(request) {
-    console.log(request)
     return new Promise((resolve, reject) => {
         sql = `SELECT idFeriado, DATE(feriadoFecha), feriado
         FROM bo_feriados

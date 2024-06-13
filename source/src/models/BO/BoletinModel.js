@@ -63,8 +63,14 @@ async function crearBoletin(request) {
         request.usuario], request).catch(err => { throw err });
 
         //Si el boletin que estoy creando es una segunda edición para la fecha, no debo asignar ninguna norma al mismo
-        const [esSegundaEdicion] = await conn.query('SELECT 1 FROM bo_boletines WHERE fechaPublicacion=?', [request.fechaPublicacion])
-        if (esSegundaEdicion) { await conn.commit(); return; }
+        const [esSegundaEdicion] = await conn.query(`
+        SELECT 1 FROM bo_boletines a 
+        LEFT JOIN bo_boletines_estados b ON a.idBoletin = b.idBoletin 
+        WHERE a.fechaPublicacion=?
+        AND b.idBoletinesEstado = 5`, [request.fechaPublicacion])
+        if (esSegundaEdicion) { 
+            console.log("ES SEGUNDA EDICION TODO LO QUE VA ABAJO NO PASA")
+            await conn.commit(); return; }
 
         //Traigo todas las normas desde-hasta, tal que la fecha de publicacion DEL BOLETIN QUE SE ESTÁ INTENTANDO CREAR
         //esté entre la fechaDesde y la fechaHasta de la norma, y además, que la norma no esté ya asignada a un 
@@ -107,7 +113,7 @@ async function crearBoletin(request) {
             await guardarLog(conn, sql, [], request)
 
         }
-
+        //Aca se asignarian las normas desde-hasta al boletin creado?
         if (normasDesdeHasta?.length > 0) {
             let sql = `INSERT INTO bo_boletines_normas (idBoletin, idNorma) VALUES ${normasDesdeHasta.map(n => `(${boletinCreado.insertId},${n.idNorma})`)}`
             await conn.query(sql)
@@ -563,7 +569,6 @@ function traerNormasPorFechaLimite(request) {
 }
 function traerNormasBoletinDesdeHasta(request) {
     return new Promise(async (resolve, reject) => {
-        console.log(request.fechaPublicacionDelBoletin)
         if (!request.fechaPublicacionDelBoletin) { reject() }
         sql = `
         SELECT
@@ -1139,7 +1144,7 @@ async function anularDescargaBoletin(request) {
 }
 
 async function firmarBoletin(request) {
-
+    console.log("----REQUEST AL FIRMAR BOLETIN",request)
     let crearMetadatosBoletin = `INSERT INTO bo_boletines_metadatos (
         idBoletin, 
         boletinSecciones,
@@ -1214,10 +1219,21 @@ async function firmarBoletin(request) {
                 .catch(err => { throw err });
         }
 
-        await conn.query(borrarEstadoNorma, [request.usuario, request.normas.filter(n => n.idNormasEstadoTipo === 9).map(n => n.idNorma)])
+
+        // Por las dudas chequeo previo si estan en idNormasEstadoTipo === 9, sino no hago nada
+        let normasBO_DESCARGADO = request.normas.filter(n => n.idNormasEstadoTipo === 9)
+        if (normasBO_DESCARGADO.length > 0){
+            
+            await conn.query(borrarEstadoNorma, [request.usuario, normasBO_DESCARGADO.map(n => n.idNorma)])
             .catch(err => { throw err });
 
-        await guardarLog(conn, borrarEstadoNorma, [request.usuario, request.normas.filter(n => n.idNormasEstadoTipo === 9).map(n => n.idNorma)], request).catch(err => { throw err });
+            await guardarLog(conn, borrarEstadoNorma, [request.usuario, normasBO_DESCARGADO.map(n => n.idNorma)], request).catch(err => { throw err });
+        }
+        
+        ////////////////////////////////////////////////////////////////////////////////////
+
+
+
 
         await conn.batch("UPDATE bo_boletines_normas SET archivoPublicado=? WHERE idBoletin=? AND idNorma=?",
             request.normas.map(n => ([n.pdfNormaS3, request.idBoletin, n.idNorma])))

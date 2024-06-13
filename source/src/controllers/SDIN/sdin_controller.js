@@ -19,10 +19,11 @@ const { traerNormasNoPublicadasBO, traerNormasPublicadasBO, importarNormasNoPubl
   agregarDependenciasSDIN, editarDependenciasSDIN, eliminarDependenciasSDIN, agregarDependenciaNormas, traerEstadosSDIN,
   traerNiveles, editarArchivoTextoActualizadoSDIN, traerTrazabilidadUsuarios,
   traerTrazabilidad, traerImagenesPorIdNormaSDIN, traerImagenPorIdNormaSDIN,
-  traerTiposTrazabilidad, agregarAdjunto, borrarAdjunto, borrarDependenciaNormas, editarDescriptor
+  traerTiposTrazabilidad, agregarAdjunto, borrarAdjunto, borrarDependenciaNormas, editarDescriptor, comprobarDependenciaRepetida, traerJerarquiaTemasArbol
+
 } = require('./NormasFunctions')
 const { traerAnexosPorIdNorma, traerNormaPorId } = require('../BO/NormasFunctions');
-const { subirArchivo, subirArchivoBucketS3 } = require('../../helpers/functionsS3');
+const { subirArchivo, subirArchivoBucketS3, copiarArchivo } = require('../../helpers/functionsS3');
 let XLSX = require("xlsx");
 
 async function traerNormasNoPublicadasBOController(req, res, next) {
@@ -35,7 +36,7 @@ async function traerNormasNoPublicadasBOController(req, res, next) {
   request.analista = req.body?.analista;
   request.normaNumero = req.body.normaNumero;
   request.fechaLimite = req.body.fechaLimite;
-  request.fechaPublicacion = req.body?.fechaRevisado;
+  request.fechaRevisado = req.body?.fechaRevisado;
   //Paginacion (viene tambien en el req.body)
   request.limite = req.body.limite;
   request.paginaActual = req.body.paginaActual;
@@ -141,13 +142,26 @@ async function importarNormasNoPublicadasBOController(req, res, next) {
           if (res[0].idNormasEstadoTipo !== 8 || res[0].normaRevisada !== 1) {
             throw `La norma ${norma} no está revisada o no está en estado BO_EN_REDACCION`
           }
-/*           if (res[0].idNormaSDIN !== null && res[0].idNormasEstadoTipoSDIN !== 0) {
-            throw `La norma ${norma} ya se encuentra en SDIN`
-          } */
+          // Proceso de copia de documentos de BO a SDIN.
+          copiarArchivo(process.env.S3_BO_NORMAS + res[0].normaArchivoOriginalS3Key, process.env.S3_SDIN_NORMAS + res[0].normaArchivoOriginalS3Key)
         })
         .catch((e) => {
           throw e
         });
+        // copio los anexos que tiene la norma
+        await traerAnexosPorIdNorma({idNorma: norma}).then(res => {
+          if (res.length > 1) {
+            for(let i = 0; i < res.length; i++) {
+              console.log("copiando anexos...")
+              copiarArchivo(process.env.S3_BO_NORMAS + res[i].normaAnexoArchivoS3Key, process.env.S3_SDIN_NORMAS + res[i].normaAnexoArchivoS3Key)
+            }
+          } else if (res.length === 1) {
+            console.log("copiando anexos...")
+            copiarArchivo(process.env.S3_BO_NORMAS + res[0].normaAnexoArchivoS3Key, process.env.S3_SDIN_NORMAS + res[0].normaAnexoArchivoS3Key)
+          }
+          
+        }).catch(e => console.log(e))
+        
     }
 
     await importarNormasNoPublicadasBO(request)
@@ -188,13 +202,29 @@ async function importarNormasPublicadasBOController(req, res, next) {
           if (res[0].idNormasEstadoTipo !== 11) {
             throw `La norma ${norma} no está publicada o no está en estado BO_PUBLICADO`
           }
-/*           if (res[0].idNormaSDIN !== null) {
-            throw `La norma ${norma} ya se encuentra en SDIN`
-          } */
+          // Proceso de copia de documentos de BO a SDIN.
+          copiarArchivo(process.env.S3_BO_NORMAS + res[0].normaArchivoOriginalS3Key, process.env.S3_SDIN_NORMAS + res[0].normaArchivoOriginalS3Key)
+
+
+          // copiarArchivo(process.env.S3_BO_NORMAS + "DESDE" , process.env.S3_SDIN_NORMAS + "OBJETIVO")
         })
         .catch((e) => {
           throw e
         });
+        // copio los anexos que tiene la norma
+        await traerAnexosPorIdNorma({idNorma: norma}).then(res => {
+          if (res.length > 1) {
+            for(let i = 0; i < res.length; i++) {
+              console.log("copiando anexos...")
+              copiarArchivo(process.env.S3_BO_NORMAS + res[i].normaAnexoArchivoS3Key, process.env.S3_SDIN_NORMAS + res[i].normaAnexoArchivoS3Key)
+            }
+          } else if (res.length === 1) {
+            console.log("copiando anexos...")
+            copiarArchivo(process.env.S3_BO_NORMAS + res[0].normaAnexoArchivoS3Key, process.env.S3_SDIN_NORMAS + res[0].normaAnexoArchivoS3Key)
+          }
+          
+        }).catch(e => console.log(e))
+        
     }
 
     await importarNormasPublicadasBO(request)
@@ -258,6 +288,7 @@ async function traerNormasController(req, res, next) {
   request.idRelacion = req.body?.idRelacion
   request.idCausal = req.body?.idCausal
   request.tieneFormulario = req.body?.tieneFormulario
+  request.idAnexoDJ = req.body?.idAnexoDJ
   //Paginacion (viene tambien en el req.body)
   request.limite = req.body.limite;
   request.paginaActual = req.body.paginaActual;
@@ -335,7 +366,7 @@ async function crearNormaSDINController(req, res, next) {
   request.idReparticionOrganismo = req.body.idOrganismo;
   request.idNormaTipo = req.body.idNormaTipo;
   request.idNormaSubtipo = req.body.idNormaSubtipo;
-  request.normaNumero = (req.body.normaNumero !== '')?Number(req.body.normaNumero):'';
+  request.normaNumero = (req.body.normaNumero !== '') ? Number(req.body.normaNumero) : '';
   request.normaSumario = req.body.normaSumario;
   request.vigenciaEspecial = req.body.vigenciaEspecial;
   request.vigenciaEspecialDescripcion = req.body.vigenciaEspecialDescripcion;
@@ -357,7 +388,8 @@ async function crearNormaSDINController(req, res, next) {
   request.adjunto = req.body.adjunto;
   request.nombreTextoActualizado = req.body?.nombreTextoActualizado;
   request.textoActualizadoS3 = null;
-  request.textoActualizado = req.body.textoActualizado
+  request.textoActualizado = req.body?.textoActualizado
+  request.contenidoEditorTextoActualizado = req.body?.contenidoEditorTextoActualizado
 
   for (const key in request) {
     if (request[key] === undefined) {
@@ -382,20 +414,20 @@ async function crearNormaSDINController(req, res, next) {
       request.archivoS3 = docNormaSubido['Key'].replace(process.env.S3_SDIN_NORMAS, '');
     }
 
-    if (req.body.adjunto && request.adjunto){
-      const adjuntoSubido = await subirArchivo(req.body.adjunto,req.body.cuit,process.env.S3_SDIN_NORMAS + request.nombreAdjunto)
-        .catch(err =>{
-          console.log(err,"Error en subir ADJUNTO")
+    if (req.body.adjunto && request.adjunto) {
+      const adjuntoSubido = await subirArchivo(req.body.adjunto, req.body.cuit, process.env.S3_SDIN_NORMAS + request.nombreAdjunto)
+        .catch(err => {
+          console.log(err, "Error en subir ADJUNTO")
         })
-        request.adjuntoS3 = adjuntoSubido['Key'].replace(process.env.S3_SDIN_NORMAS, '')
+      request.adjuntoS3 = adjuntoSubido['Key'].replace(process.env.S3_SDIN_NORMAS, '')
     }
 
-    if (req.body.textoActualizado && request.textoActualizado){
-      const taSubido = await subirArchivo(req.body.textoActualizado,req.body.cuit,process.env.S3_SDIN_NORMAS + request.nombreTextoActualizado)
-        .catch(err=>{
-          console.log(err,"Error en subir TA")
+    if (req.body.textoActualizado && request.textoActualizado) {
+      const taSubido = await subirArchivo(req.body.textoActualizado, req.body.cuit, process.env.S3_SDIN_NORMAS + request.nombreTextoActualizado)
+        .catch(err => {
+          console.log(err, "Error en subir TA")
         })
-        request.textoActualizadoS3 = taSubido['Key'].replace(process.env.S3_SDIN_NORMAS,'')
+      request.textoActualizadoS3 = taSubido['Key'].replace(process.env.S3_SDIN_NORMAS, '')
     }
 
     for (const ax of req.body.anexos) {
@@ -757,15 +789,23 @@ async function borrarNormasSDINController(req, res, next) {
 
 async function traerTemasController(req, res, next) {
 
+  let request = {};
+  //Paginacion (viene tambien en el req.body)
+  request.limite = req.body.limite;
+  request.paginaActual = req.body.paginaActual;
+  //Ordenamiento
+  request.campo = req.body.campo;
+  request.orden = req.body.orden;
+
   try {
 
-    const temas = await traerTemas()
+    const {temas, totalTemas} = await traerTemas(request)
       .catch((e) => {
         throw ({ mensaje: "PIN: Error al traer las Temas.", data: e })
       });
 
     res.status(200)
-    res.send(JSON.stringify({ mensaje: `PIN: Temas:`, temas }))
+    res.send(JSON.stringify({ mensaje: `PIN: Temas:`, temas, totalTemas: totalTemas[0]["COUNT(idTema)"]}))
     res.end();
     return;
   }
@@ -778,9 +818,7 @@ async function traerTemasController(req, res, next) {
 }
 
 async function traerRamasController(req, res, next) {
-
   try {
-
     const ramas = await traerRamas()
       .catch((e) => {
         throw ({ mensaje: "PIN: Error al traer las Ramas.", data: e })
@@ -1739,16 +1777,22 @@ async function habilitarTemaController(req, res, next) {
 }
 
 async function traerClasesABMController(req, res, next) {
-  let respuesta = await traerClasesABM()
+  let request = {};
+  //Paginacion (viene tambien en el req.body)
+  request.limite = req.body.limite;
+  request.paginaActual = req.body.paginaActual;
+  //Ordenamiento
+  request.campo = req.body.campo;
+  request.orden = req.body.orden;
+  const {respuesta, totalClases} = await traerClasesABM(request)
     .catch((e) => {
       res.status(409)
       res.send(JSON.stringify({ mensaje: "PIN: Error al traer Clases.", data: String(e) }))
       res.end();
       return;
     });
-  console.log(respuesta)
   res.status(200)
-  res.send(JSON.stringify({ mensaje: 'PIN: Clases.', data: respuesta }))
+  res.send(JSON.stringify({ mensaje: 'PIN: Clases.', data: respuesta, totalClases: totalClases[0]['COUNT(*)'] }))
   res.end();
   return;
 
@@ -1856,16 +1900,22 @@ async function eliminarClasesController(req, res, next) {
 }
 
 async function traerRelacionesTiposABMController(req, res, next) {
-  let respuesta = await traerRelacionesTiposABM()
+  let request = {};
+  //Paginacion (viene tambien en el req.body)
+  request.limite = req.body.limite;
+  request.paginaActual = req.body.paginaActual;
+  //Ordenamiento
+  request.campo = req.body.campo;
+  request.orden = req.body.orden;
+  const {respuesta, totalRelacionesTipos} = await traerRelacionesTiposABM(request)
     .catch((e) => {
       res.status(409)
       res.send(JSON.stringify({ mensaje: "PIN: Error al traer relaciones.", data: String(e) }))
       res.end();
       return;
     });
-  console.log(respuesta)
   res.status(200)
-  res.send(JSON.stringify({ mensaje: 'PIN: Relaciones.', data: respuesta }))
+  res.send(JSON.stringify({ mensaje: 'PIN: Relaciones.', data: respuesta, totalRelacionesTipos: totalRelacionesTipos[0]['COUNT(*)'] }))
   res.end();
   return;
 
@@ -1976,8 +2026,36 @@ async function eliminarRelacionesTiposController(req, res, next) {
 
 async function traerJerarquiaTemasController(req, res, next) {
   try {
+    let request = {};
+  //Paginacion (viene tambien en el req.body)
+  request.limite = req.query.limite;
+  request.paginaActual = req.query.paginaActual;
+  //Ordenamiento
+  request.campo = req.body.campo;
+  request.orden = req.body.orden;
+    const { jerarquia, totalJerarquia } = await traerJerarquiaTemas(request)
+      .catch((e) => {
+        throw ({ mensaje: "PIN: Error al traer la jerarquia de los temas.", data: e })
+      });
+    
+    res.status(200)
+    res.send(JSON.stringify({ mensaje: `PIN: Temas`, jerarquia: jerarquia, totalJerarquia: totalJerarquia[0]['COUNT(*)']}))
+    res.end();
+    return;
+  }
+  catch (e) {
+    console.log(e)
+    res.status(409);
+    res.send(JSON.stringify({ e }))
+    res.end();
+    return;
+  }
+}
 
-    const jerarquia = await traerJerarquiaTemas()
+async function traerJerarquiaTemasArbolController(req, res, next) {
+  try {
+
+    const jerarquia = await traerJerarquiaTemasArbol()
       .catch((e) => {
         throw ({ mensaje: "PIN: Error al traer la jerarquia de los temas.", data: e })
       });
@@ -2084,18 +2162,26 @@ async function traerJerarquiaNormaController(req, res, next) {
 }
 
 async function traerRamasABMController(req, res, next) {
-  let respuesta = await traerRamasABM()
-    .catch((e) => {
-      res.status(409)
-      res.send(JSON.stringify({ mensaje: "PIN: Error al traer Ramas.", data: String(e) }))
-      res.end();
-      return;
-    });
-  console.log(respuesta)
-  res.status(200)
-  res.send(JSON.stringify({ mensaje: 'PIN: Ramas.', data: respuesta }))
-  res.end();
-  return;
+  try {
+    let request = {}
+    request.limite = req.body?.limite;
+    request.paginaActual = req.body?.paginaActual;
+    let respuesta = await traerRamasABM(request)
+      // .catch((e) => {
+      //   res.status(409)
+      //   res.send(JSON.stringify({ mensaje: "PIN: Error al traer Ramas.", data: String(e) }))
+      //   res.end();
+      //   return;
+      // });
+    res.status(200)
+    res.send(JSON.stringify({ mensaje: 'PIN: Ramas.', data: respuesta.ramas, total: respuesta.total }))
+    res.end();
+    return;
+  } catch (error) {
+    console.log(error)
+    res.status(500).send({mensaje: "Error al traer las ramas.", error})
+  }
+
 
 }
 
@@ -2201,17 +2287,23 @@ async function eliminarRamasController(req, res, next) {
 }
 
 async function traerCausalesABMController(req, res, next) {
-  console.log("aaa")
-  let respuesta = await traerCausalesABM()
+  let request = {};
+  //Paginacion (viene tambien en el req.body)
+  request.limite = req.body.limite;
+  request.paginaActual = req.body.paginaActual;
+  //Ordenamiento
+  request.campo = req.body.campo;
+  request.orden = req.body.orden;
+  const {causales, totalCausales} = await traerCausalesABM(request)
     .catch((e) => {
       res.status(409)
       res.send(JSON.stringify({ mensaje: "PIN: Error al traer causales.", data: String(e) }))
       res.end();
       return;
     });
-  console.log(respuesta)
+  
   res.status(200)
-  res.send(JSON.stringify({ mensaje: 'PIN: Causales.', data: respuesta }))
+  res.send(JSON.stringify({ mensaje: 'PIN: Causales.', data: causales, totalCausales: totalCausales[0]['COUNT(*)'] }))
   res.end();
   return;
 
@@ -2319,17 +2411,19 @@ async function eliminarCausalesController(req, res, next) {
 }
 
 async function traerPatologiasABMController(req, res, next) {
-  console.log("aaa")
-  let respuesta = await traerPatologiasABM()
+  let request = {}
+    //Paginacion (viene tambien en el req.body)
+    request.limite = req.body.limite;
+    request.paginaActual = req.body.paginaActual;
+  const {data, totalPatologias} = await traerPatologiasABM(request)
     .catch((e) => {
       res.status(409)
-      res.send(JSON.stringify({ mensaje: "PIN: Error al traer patologias.", data: String(e) }))
+      res.send(JSON.stringify({ mensaje: "PIN: Error al traer patologias.", data: String(e)}))
       res.end();
       return;
     });
-  console.log(respuesta)
   res.status(200)
-  res.send(JSON.stringify({ mensaje: 'PIN: Patologias.', data: respuesta }))
+  res.send(JSON.stringify({ mensaje: 'PIN: Patologias.', data: data, totalPatologias: totalPatologias[0]['COUNT(*)']  }))
   res.end();
   return;
 
@@ -2469,7 +2563,7 @@ async function borrarPublicacionController(req, res, next) {
   try {
     let request = {
       idNormaSDIN: req.body.idNormaSDIN,
-      idUsuario: req.body.idUsuario
+      idUsuario: req.body.idUsuario,
     };
 
     if ((req.ip).substring(0, 7) === "::ffff:") {
@@ -2495,11 +2589,15 @@ async function borrarPublicacionController(req, res, next) {
 
 async function normasTiposSDINController(req, res, next) {
   try {
-    let respuesta = await normaTiposSDIN()
+    let request = {}
+    request.paginaActual = req.query?.paginaActual
+    request.limite = req.query?.limite
+    
+    let respuesta = await normaTiposSDIN(request)
       .catch((err) => {
         throw err
       });
-    res.status(200).send(JSON.stringify({ mensaje: 'PIN: Tipos de Norma SDIN.', data: respuesta })).end();
+    res.status(200).send(JSON.stringify({ mensaje: 'PIN: Tipos de Norma SDIN.', data: respuesta.tipos, total: respuesta.total })).end();
     return;
   }
   catch (err) {
@@ -2559,6 +2657,10 @@ async function agregarNormasTiposSDINController(req, res, next) {
 
 async function agregarDependenciasSDINController(req, res, next) {
   try {
+    let comprobar = await comprobarDependenciaRepetida(req.body)
+    if(comprobar.length > 0) {
+      throw new Error("La dependencia que estas intentando agregar ya existe.")
+    }
     let respuesta = await agregarDependenciasSDIN(req.body)
       .catch((err) => {
         throw err
@@ -2567,6 +2669,7 @@ async function agregarDependenciasSDINController(req, res, next) {
     return;
   }
   catch (err) {
+    console.log(err)
     res.status(409)
     res.send(JSON.stringify({ mensaje: "PIN: Error.", data: String(err) }))
     res.end();
@@ -2929,5 +3032,5 @@ module.exports = {
   traerTrazabilidadController, traerUsuariosParaTrazabilidad,
   traerImagenesPorIdNormaSDINController, traerImagenPorIdNormaSDINController,
   traerTiposParaTrazabilidad, agregarAdjuntoController, borrarAdjuntoController, borrarDependenciaNormasController,
-  editarDescriptorController
+  editarDescriptorController, traerJerarquiaTemasArbolController
 }

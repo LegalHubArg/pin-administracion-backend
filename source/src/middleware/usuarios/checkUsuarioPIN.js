@@ -106,7 +106,6 @@ async function checkExistePerfilDeUsuarioAlta(req, res, next) {
     let usuario = req.usuario.idUsuario;
     await existePerfilAlta(usuario, perfil)
         .then(results => {
-            console.log(results)
             if (results.length !== 0) {
                 res.status(409)
                 res.send(JSON.stringify({ status: 'bloqueado', mensaje: 'PIN: El usuario ya posee el perfil que intenta asignar.', error: 'Petición no permitida.' }))
@@ -332,8 +331,6 @@ function existePermisosUsuario(idCuenta) {
         let sql = "SELECT * FROM bo_permisos_carga_cuentas a WHERE a.idCuenta = ? AND a.estado = 1 LIMIT 1";
         let params = [idCuenta];
 
-        console.log(idCuenta)
-
         connection.pool.getConnection(function (err, conn) {
             if (err) throw err; // not connected!
 
@@ -355,8 +352,6 @@ function existeReparticionesUsuario(idUsuario) {
 
         let sql = "SELECT * FROM perm_usuarios_reparticiones a WHERE a.idUsuario = ? AND a.estado = 1 LIMIT 1";
         let params = [idUsuario];
-
-        console.log(idUsuario)
 
         connection.pool.getConnection(function (err, conn) {
             if (err) throw err; // not connected!

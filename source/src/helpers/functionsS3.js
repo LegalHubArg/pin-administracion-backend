@@ -126,7 +126,6 @@ async function subirArchivoBucketS3(req, res, next) {
 // descarga de un archivo en (SOLO BOLETIN)
 async function traerArchivoBucketS3(req, res, next) {
     try {
-        console.log(req.body.nombre)
         let params = {
             Key: process.env.S3_BO_NORMAS + req.body.nombre,
             Bucket: process.env.AWS_BUCKET_NAME
@@ -146,7 +145,6 @@ async function traerArchivoBucketS3(req, res, next) {
 
 async function traerArchivoFirmadoBucketS3(req, res, next) {
     try {
-        console.log(req.body.nombre)
         let params = {
             Key: process.env.S3_BO_FIRMADOS + req.body.nombre,
             Bucket: process.env.AWS_BUCKET_NAME
@@ -167,7 +165,6 @@ async function traerArchivoFirmadoBucketS3(req, res, next) {
 // descarga de un archivo en (SDIN)
 async function traerArchivoNormaSDIN(req, res, next) {
     try {
-        console.log(req.body.nombre)
         let params = {
             Key: process.env.S3_SDIN_NORMAS + req.body.nombre,
             Bucket: process.env.AWS_BUCKET_NAME
@@ -188,7 +185,6 @@ async function traerArchivoNormaSDIN(req, res, next) {
 // descarga de un archivo en (Digesto)
 async function traerArchivoDigesto(req, res, next) {
     try {
-        console.log(req.body.nombre)
         let params = {
             Key: process.env.S3_DIGESTO + req.body.nombre,
             Bucket: process.env.AWS_BUCKET_NAME
@@ -230,6 +226,7 @@ async function subirPdfBucketS3(base64, usuario, nombreDocumento, sin_timestamp)
     if (sin_timestamp) {
         key = nombreDocumento;
     }
+    console.log(`--- SUBIENDO AL BUCKET:${key} || Nombre por parametro:${nombreDocumento} -------`)
 
     let buf = new Buffer.from(base64, 'base64')
 
@@ -246,6 +243,7 @@ async function subirPdfBucketS3(base64, usuario, nombreDocumento, sin_timestamp)
         dataBucket = stored;
     }
     catch (e) {
+        console.log("-----SALI DEL BUCKET MAL")
         throw e
     }
     return dataBucket;
@@ -324,7 +322,7 @@ async function subirArchivo(base64, user, archivo) {
 
     let buf = new Buffer.from(base64.replace(/^data:.+;base64,/, ""), 'base64')
 
-    console.log("subiendo archivo a S3: " + nombreDocumento)
+    console.log("-----subiendo archivo a S3: " + nombreDocumento)
 
     let params = {
         Key: nombreDocumento,
@@ -357,6 +355,7 @@ async function traerArchivo(nombre) {
 }
 
 async function copiarArchivo(source, target) {
+    let data = {}
     try {
         console.log("Copiando archivo: " + String(source) + " en " + String(target))
         
@@ -376,11 +375,19 @@ async function copiarArchivo(source, target) {
         };
 
         let copia = await s3.copyObject(params).promise();
-        console.log(copia)
-        return;
+        console.log("LA COPIA SALIO BIEN",copia)
+        
+        data.copiaS3 = true
+
+        return data;
     }
     catch (e) {
-        throw e
+        console.log("----SALI MAL AL COPIAR ARCHIVO BUCKET")
+        let data = {
+            copiaS3 : false,
+            error : String(e)
+        }
+        return data
     }
 }
 

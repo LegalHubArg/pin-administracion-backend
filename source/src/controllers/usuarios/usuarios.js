@@ -580,7 +580,6 @@ async function traerPerfilesController(req, res, next) {
       res.end();
       return;
     });
-  console.log(respuesta)
   res.status(200)
   res.send(JSON.stringify({ mensaje: 'PIN: Perfiles.', data: respuesta }))
   res.end();

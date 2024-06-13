@@ -1037,11 +1037,12 @@ async function guardarFormulario6(request) {
             textoDefinitivoAnexo=?, 
             observacionesGenerales=?,
             archivo=?,
-            archivoS3=?
+            archivoS3=?,
+            documentoConsolidado=?
             WHERE idTextoDefinitivo=?`;
             params = [request.idUsuario,
             request.textoDefinitivo, request.textoDefinitivoAnexo,
-            request.observacionesGenerales, request.archivo, request.archivoS3,
+            request.observacionesGenerales, request.archivo, request.archivoS3, request.documentoConsolidado,
             formularioActual[0].idTextoDefinitivo]
             await conn.query(sql, params).catch(err => { throw err });
         }

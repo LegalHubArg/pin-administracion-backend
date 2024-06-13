@@ -67,7 +67,7 @@ function observacion(res, to, datosEmail) {
       if (error) {
         console.log(error);
       } else {
-        console.log('email enviado!!!!!!!!!!!!!!!!!!!!!!!', response)
+        // console.log(response)
       }
     });
   });

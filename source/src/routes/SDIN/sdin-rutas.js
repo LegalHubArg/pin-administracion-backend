@@ -44,7 +44,7 @@ const { traerNormasNoPublicadasBOController, traerHistorialSDINController,
     agregarDependenciaNormasController, traerEstadosSDINController, traerNivelesController, editarArchivoTextoActualizadoSDINController,
     traerTrazabilidadController, traerUsuariosParaTrazabilidad, traerHistorialDigestoController,
     traerImagenesPorIdNormaSDINController, traerImagenPorIdNormaSDINController, 
-    traerTiposParaTrazabilidad, agregarAdjuntoController, borrarAdjuntoController, borrarDependenciaNormasController,editarDescriptorController } = require('../../controllers/SDIN/sdin_controller');
+    traerTiposParaTrazabilidad, agregarAdjuntoController, borrarAdjuntoController, borrarDependenciaNormasController,editarDescriptorController, traerJerarquiaTemasArbolController } = require('../../controllers/SDIN/sdin_controller');
 const { checkAdminSDIN } = require('../../middleware/usuarios/checkUsuarioPINRoles');
 const { traerArchivoNormaSDIN } = require('../../helpers/functionsS3');
 
@@ -95,6 +95,7 @@ router.post('/norma/publicar', checkAuth, checkUsuarioPIN, checkBoletinControlle
 router.post('/norma/borrar-publicacion', checkAuth, checkUsuarioPIN, borrarPublicacionController)
 router.post('/temas', checkAuth, checkUsuarioPIN, traerTemasController)
 router.get('/temas/jerarquia', checkAuth, traerJerarquiaTemasController)
+router.get('/temas/jerarquia/arbol', checkAuth, traerJerarquiaTemasArbolController)
 router.post('/temas/jerarquia/crear', checkAuth, checkUsuarioPIN, checkAdminSDIN, crearJerarquiaTemasController)
 router.post('/temas/jerarquia/borrar', checkAuth, checkUsuarioPIN, checkAdminSDIN, borrarJerarquiaTemasController)
 router.get('/temas/jerarquia/normas', checkAuth, traerJerarquiaNormaController)

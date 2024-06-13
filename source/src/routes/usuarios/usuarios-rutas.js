@@ -39,7 +39,6 @@ router.post('/usuario/reparticiones/borrar', checkAuth, checkUsuarioPIN, borrarR
 
 //////////////////// SADE \\\\\\\\\\\\\\\\\\\\\
 router.post('/sade', checkUsuarioSADE, function (req, res, next) {
-    console.log(req.metadatosSADE)
     res.status(200);
     res.send(JSON.stringify( { mensaje: 'DATOS SADE', data: req.metadatosSADE}))
   });

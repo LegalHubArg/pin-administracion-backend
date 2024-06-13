@@ -324,7 +324,6 @@ function traerOrganismosEmisoresExterno(request) {
     });
 }
 function crearOrganismosEmisores(request) {
-    console.log(request)
     return new Promise((resolve, reject) => {
         let sql = `INSERT INTO bo_organismos_emisores (
             nombre,

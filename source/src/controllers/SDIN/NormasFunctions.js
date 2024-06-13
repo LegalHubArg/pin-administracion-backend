@@ -142,9 +142,9 @@ async function editarArchivoTextoActualizadoSDIN(request) {
     });
 }
 
-async function traerTemas() {
+async function traerTemas(request) {
     return new Promise((resolve, reject) => {
-        normasModel.traerTemas()
+        normasModel.traerTemas(request)
             .then(results => {
                 resolve(results);
             })
@@ -567,9 +567,9 @@ async function habilitarTema(request) {
     return response;
 }
 
-async function traerClasesABM() {
+async function traerClasesABM(request) {
     return new Promise((resolve, reject) => {
-        normasModel.traerClasesABM()
+        normasModel.traerClasesABM(request)
             .then(results => {
                 resolve(results);
             })
@@ -618,9 +618,9 @@ async function eliminarClases(request) {
     return response;
 }
 
-async function traerRelacionesTiposABM() {
+async function traerRelacionesTiposABM(request) {
     return new Promise((resolve, reject) => {
-        normasModel.traerRelacionesTiposABM()
+        normasModel.traerRelacionesTiposABM(request)
             .then(results => {
                 resolve(results);
             })
@@ -669,9 +669,21 @@ async function eliminarRelacionesTipos(request) {
     return response;
 }
 
-async function traerJerarquiaTemas() {
+async function traerJerarquiaTemas(request) {
     let response = {}
-    await normasModel.traerJerarquiaTemas()
+    await normasModel.traerJerarquiaTemas(request)
+        .then(results => {
+            response = results
+        })
+        .catch(err => {
+            throw new Error(err);
+        })
+    return response;
+}
+
+async function traerJerarquiaTemasArbol() {
+    let response = {}
+    await normasModel.traerJerarquiaTemasArbol()
         .then(results => {
             response = results
         })
@@ -693,9 +705,9 @@ async function traerJerarquiaNorma() {
     return response;
 }
 
-async function traerRamasABM() {
+async function traerRamasABM(request) {
     return new Promise((resolve, reject) => {
-        normasModel.traerRamasABM()
+        normasModel.traerRamasABM(request)
             .then(results => {
                 resolve(results);
             })
@@ -755,9 +767,9 @@ async function crearJerarquiaTemas(request) {
     return response;
 }
 
-async function traerCausalesABM() {
+async function traerCausalesABM(request) {
     return new Promise((resolve, reject) => {
-        normasModel.traerCausalesABM()
+        normasModel.traerCausalesABM(request)
             .then(results => {
                 resolve(results);
             })
@@ -818,9 +830,9 @@ async function eliminarCausales(request) {
     return response;
 }
 
-async function traerPatologiasABM() {
+async function traerPatologiasABM(request) {
     return new Promise((resolve, reject) => {
-        normasModel.traerPatologiasABM()
+        normasModel.traerPatologiasABM(request)
             .then(results => {
                 resolve(results);
             })
@@ -924,6 +936,19 @@ async function eliminarNormasTiposSDIN(request) {
 async function agregarNormasTiposSDIN(request) {
     let response = {}
     await normasModel.agregarNormasTiposSDIN(request)
+        .then(results => {
+            response = results
+        })
+        .catch(err => {
+            throw new Error(err);
+
+        })
+    return response;
+}
+
+async function comprobarDependenciaRepetida(request) {
+    let response = {}
+    await normasModel.comprobarDependenciaRepetida(request)
         .then(results => {
             response = results
         })
@@ -1209,5 +1234,6 @@ module.exports = {
     agregarDependenciasSDIN,editarDependenciasSDIN,eliminarDependenciasSDIN, agregarDependenciaNormas,
     traerEstadosSDIN, traerNiveles, editarArchivoTextoActualizadoSDIN, traerTrazabilidad, traerTrazabilidadUsuarios,
     traerImagenesPorIdNormaSDIN, traerImagenPorIdNormaSDIN, traerTiposTrazabilidad, agregarAdjunto, borrarAdjunto,
-    borrarDependenciaNormas,editarDescriptor
+    borrarDependenciaNormas,editarDescriptor, comprobarDependenciaRepetida , traerJerarquiaTemasArbol
+
 }

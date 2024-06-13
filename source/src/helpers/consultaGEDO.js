@@ -106,7 +106,7 @@ async function traerPdfGEDO(req, res, next) {
                 parsedData = result['soap:Envelope']['soap:Body'][0]['ns2:consultarDocumentoPdfResponse'][0]['return'][0]
             }
         })
-        console.log(parsedData.slice(0, 10)) //Primeros 10 caracteres del base64 (control)
+        // console.log(parsedData.slice(0, 10)) //Primeros 10 caracteres del base64 (control)
         res.status(200).send({ base64: parsedData, metadatos: metadatosDocumento });
 
     }
@@ -214,7 +214,7 @@ async function traerPdfGEDONumeroEspecial(req, res, next) {
                 parsedData = result['soap:Envelope']['soap:Body'][0]['ns2:consultarDocumentoPdfResponse'][0]['return'][0]
             }
         })
-        console.log(parsedData.slice(0, 10)) //Primeros 10 caracteres del base64 (control)
+        // console.log(parsedData.slice(0, 10)) //Primeros 10 caracteres del base64 (control)
 
         //Busco la repa (última en la lista de firmantes)
         let xmlConsultarDocumentoDetalle = `

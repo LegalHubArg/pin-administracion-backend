@@ -54,6 +54,10 @@ function traerNormasNoPublicadasBO(request) {
                     sql += ` AND b.fechaLimite=?`;
                     params.push(value)
                     break;
+                case ('fechaRevisado'):
+                    sql += ` AND b.fechaRevisado=?`;
+                    params.push(value)
+                    break;
                 case ('idNormaSubtipo'):
                     sql += ` AND b.idNormaSubtipo=?`;
                     params.push(value)
@@ -272,14 +276,42 @@ async function importarNormasNoPublicadasBO(request) {
             from sdin_dependencias a, bo_reparticiones b 
             WHERE a.sigla = b.siglaReparticion
             AND a.estado = 1 AND b.estado = 1`);
+        //AHORA PIDEN QUE EL ORGANISMO PASE A SER DEPENDENCIA ==> TRAIGO ORG IMPORTABLES
+        const orgImportables = await conn.query(`
+            SELECT a.idDependencia, a.sigla
+            FROM sdin_dependencias a, bo_organismos_emisores b 
+            WHERE a.sigla = b.sigla
+            AND a.estado = 1`)
+
+        let normasAImportar = [] // Aca voy a guardar los idnormaSDIN a medida que se creen
 
         for (const meta of metadatosBO) {
-            const idReparticion = await conn.query(`
+            /* if (!meta.siglasReparticiones || meta.siglasReparticiones == ''){
+                const repa = conn.query(`SELECT 
+                a.idReparticion,b.siglaReparticion,a.idNorma 
+                FROM normas_metadatos a 
+                LEFT OUTER JOIN bo_reparticiones b ON a.idReparticion = b.idReparticion
+                WHERE a.idNorma = ? AND (b.estado = 1 AND a.estado = 1)`,[meta.idNorma])
+                .then(res =>{
+                    console.log(res[0])
+                    meta.siglasReparticiones = res[0].siglaReparticion
+                })
+                
+            } */
+            /* const idReparticion = await conn.query(`
                 select a.idDependencia as id
                 from sdin_dependencias a, bo_reparticiones b 
                 WHERE a.sigla = b.siglaReparticion
                 AND a.estado = 1 AND b.estado = 1 AND b.idReparticion=?`, [meta.idReparticion])
-
+            console.log("---ID REPARTICION---",idReparticion[0]) */
+            const idOrganismoDependencia = await conn.query(`
+            SELECT a.idDependencia, a.sigla
+            FROM sdin_dependencias a, bo_organismos_emisores b 
+            WHERE a.sigla = b.sigla
+            AND a.estado = 1
+            AND a.sigla = ?`, [meta.organismoEmisor])
+           // const dependencia = await conn.query(`SELECT * FROM sdin_dependencias WHERE sigla = ?`,[meta?.organismoEmisor])
+            //console.log("--DEPENDENCIA HALLADA--",dependencia[0])
             let sqlCrearNorma = `INSERT INTO sdin_normas ( usuarioCarga ) VALUES (?);`;
             let sqlCrearEstado = `INSERT INTO sdin_normas_estados ( idNormaSDIN, idNormasEstadoTipo, usuarioCarga ) 
             VALUES (?, ?, ?);`;
@@ -352,12 +384,10 @@ async function importarNormasNoPublicadasBO(request) {
 
             if (fechaSancion && fechaSancion.length > 0) {
                 const gestion = await conn.query('SELECT idGestion FROM sdin_gestiones WHERE (? BETWEEN fechaDesde AND fechaHasta) OR (fechaDesde < ? AND fechaHasta IS NULL)', [fechaSancion, fechaSancion])
-                console.log(gestion)
                 if (gestion.length > 0) {
                     idGestion = gestion[0].idGestion;
                 }
             }
-
             await conn.query(sqlCrearMetadatos, [
                 norma.insertId,
                 meta.idNorma,
@@ -365,7 +395,7 @@ async function importarNormasNoPublicadasBO(request) {
                 meta.idNormaTipoSDIN,
                 meta.idNormaSubtipo,
                 meta.idSeccion,
-                idReparticion?.length == 1 ? idReparticion[0].id : null,
+                idOrganismoDependencia?.length == 1 ? idOrganismoDependencia[0].idDependencia : null,//Ahora deberia matchear con un idOrganismo
                 meta.normaAnio,
                 meta.normaNumero,
                 meta.normaSumario,
@@ -381,6 +411,8 @@ async function importarNormasNoPublicadasBO(request) {
                     throw error
                 })
 
+            normasAImportar.push(norma.insertId)
+
             //Guardo texto original
             await conn.query(`INSERT sdin_normas_textos_originales (idNormaSDIN, textoOriginal) VALUES (?,?)`, [norma.insertId, textoNorma])
                 .catch((error) => {
@@ -388,15 +420,25 @@ async function importarNormasNoPublicadasBO(request) {
                 })
 
             //Importo las repas como dependencias
-            const repas = meta.siglasReparticiones.trim().split('-');
-
+            /* const repas = meta.siglasReparticiones.trim().split('-');
+            console.log(repas)
             for (const r of repas) {
                 let dependencia = repasImportables.find(n => n.sigla === r);
                 if (dependencia) {
                     await conn.query(`INSERT INTO sdin_normas_dependencias (idNorma, idDependencia) VALUES (?,?)`,
                         [norma.insertId, dependencia.idDependencia])
                 }
+            } */
+            // AHORA IMPORTARIA EL ORGANISMO COMO DEPENDENCIA
+            const org = meta.organismoEmisor
+            if (org){
+                let dependencia = orgImportables.find(d => d.sigla === org)
+                if (dependencia){
+                    await conn.query(`INSERT INTO sdin_normas_dependencias (idNorma, idDependencia) VALUES (?,?)`,
+                        [norma.insertId, dependencia.idDependencia])
+                }
             }
+            
 
             const anexosBO = await conn.query(`SELECT normaAnexoArchivo, normaAnexoArchivoS3Key 
             FROM normas_anexos 
@@ -427,7 +469,7 @@ async function importarNormasNoPublicadasBO(request) {
                 meta.idNormaTipoSDIN,
                 meta.idNormaSubtipo,
                 meta.idSeccion,
-                idReparticion?.length == 1 ? idReparticion[0].id : null,
+                idOrganismoDependencia?.length == 1 ? idOrganismoDependencia[0].id : null,//Ahora deberia matchear con un idOrganismo
                 meta.normaAnio,
                 meta.normaNumero,
                 meta.normaSumario,
@@ -444,7 +486,6 @@ async function importarNormasNoPublicadasBO(request) {
         //Registro el evento 'importar normas no publicadas'
         let sqlUser = `SELECT mig_nombre FROM sdin_usuarios WHERE idUsuario =?`
         let usuario = await conn.query(sqlUser, [request?.idUsuario]).catch((error) => { throw error })
-        let normasAImportar = [...request.normas]
         for (const n of normasAImportar) {
             try {
                 let sqlEvento = `INSERT INTO trazabilidad (idNorma,negocio,operacion,usuario,tipoOperacion) VALUES (?,'SDIN',?,?,10)`;
@@ -455,7 +496,6 @@ async function importarNormasNoPublicadasBO(request) {
             } catch (error) {
                 console.error("Error al registrar evento:", error);
                 throw error
-                // Puedes decidir si quieres lanzar una excepción aquí o manejar el error de alguna otra manera
             }
         }
 
@@ -502,13 +542,27 @@ async function importarNormasPublicadasBO(request) {
             from sdin_dependencias a, bo_reparticiones b 
             WHERE a.sigla = b.siglaReparticion
             AND a.estado = 1 AND b.estado = 1`);
+        
+        const orgImportables = await conn.query(`
+            SELECT a.idDependencia, a.sigla
+            FROM sdin_dependencias a, bo_organismos_emisores b 
+            WHERE a.sigla = b.sigla
+            AND a.estado = 1`)
+    
+        let normasAImportar = [] // Aca voy a guardar los idnormaSDIN a medida que se creen
 
         for (const meta of metadatosBO) {
-            const idReparticion = await conn.query(`
+            /* const idReparticion = await conn.query(`
                 select a.idDependencia as id
                 from sdin_dependencias a, bo_reparticiones b 
                 WHERE a.sigla = b.siglaReparticion
-                AND a.estado = 1 AND b.estado = 1 AND b.idReparticion=?`, [meta.idReparticion])
+                AND a.estado = 1 AND b.estado = 1 AND b.idReparticion=?`, [meta.idReparticion]) */
+            const idOrganismoDependencia = await conn.query(`
+            SELECT a.idDependencia, a.sigla
+            FROM sdin_dependencias a, bo_organismos_emisores b 
+            WHERE a.sigla = b.sigla
+            AND a.estado = 1
+            AND a.sigla = ?`, [meta.organismoEmisor])
 
             let sqlCrearNorma = `INSERT INTO sdin_normas ( usuarioCarga ) VALUES (?);`;
             let sqlCrearEstado = `INSERT INTO sdin_normas_estados ( idNormaSDIN, idNormasEstadoTipo, usuarioCarga ) 
@@ -598,7 +652,7 @@ async function importarNormasPublicadasBO(request) {
                 meta.idNormaTipoSDIN,
                 meta.idNormaSubtipo,
                 meta.idSeccion,
-                idReparticion?.length == 1 ? idReparticion[0].id : null,
+                idOrganismoDependencia?.length == 1 ? idOrganismoDependencia[0].idDependencia : null,//Ahora deberia matchear con un idOrganismo
                 meta.normaAnio,
                 meta.normaNumero,
                 meta.normaSumario,
@@ -616,6 +670,8 @@ async function importarNormasPublicadasBO(request) {
                     throw error
                 })
 
+            normasAImportar.push(norma.insertId)
+
             //Guardo texto original
             await conn.query(`INSERT sdin_normas_textos_originales (idNormaSDIN, textoOriginal) VALUES (?,?)`, [norma.insertId, textoNorma])
                 .catch((error) => {
@@ -623,11 +679,21 @@ async function importarNormasPublicadasBO(request) {
                 })
 
             //Importo las repas como dependencias
-            const repas = meta.siglasReparticiones.trim().split('-');
+            /* const repas = meta.siglasReparticiones.trim().split('-');
 
             for (const r of repas) {
                 let dependencia = repasImportables.find(n => n.sigla === r);
                 if (dependencia) {
+                    await conn.query(`INSERT INTO sdin_normas_dependencias (idNorma, idDependencia) VALUES (?,?)`,
+                        [norma.insertId, dependencia.idDependencia])
+                }
+            } */
+
+            // AHORA IMPORTARIA EL ORGANISMO COMO DEPENDENCIA
+            const org = meta.organismoEmisor
+            if (org){
+                let dependencia = orgImportables.find(d => d.sigla === org)
+                if (dependencia){
                     await conn.query(`INSERT INTO sdin_normas_dependencias (idNorma, idDependencia) VALUES (?,?)`,
                         [norma.insertId, dependencia.idDependencia])
                 }
@@ -642,10 +708,10 @@ async function importarNormasPublicadasBO(request) {
 
             if (anexosBO.length > 0) {
                 for (const anexo of anexosBO) {
-                    let sqlInsertarAnexo = `INSERT sdin_normas_anexos (archivo, archivoS3)
-                                VALUE (?, ?);`;
+                    let sqlInsertarAnexo = `INSERT sdin_normas_anexos (idNormaSDIN, archivo, archivoS3)
+                                VALUE (?, ?, ?);`;
 
-                    await conn.query(sqlInsertarAnexo, [anexo.normaAnexoArchivo, anexo.normaAnexoArchivoS3Key])
+                    await conn.query(sqlInsertarAnexo, [norma.insertId, anexo.normaAnexoArchivo, anexo.normaAnexoArchivoS3Key])
                         .catch((error) => {
                             throw error
                         })
@@ -662,7 +728,7 @@ async function importarNormasPublicadasBO(request) {
                 meta.idNormaTipoSDIN,
                 meta.idNormaSubtipo,
                 meta.idSeccion,
-                idReparticion?.length == 1 ? idReparticion[0].id : null,
+                idOrganismoDependencia?.length == 1 ? idOrganismoDependencia[0].id : null,//Ahora deberia matchear con un idOrganismo
                 meta.normaAnio,
                 meta.normaNumero,
                 meta.normaSumario,
@@ -680,7 +746,6 @@ async function importarNormasPublicadasBO(request) {
 
         let sqlUser = `SELECT mig_nombre FROM sdin_usuarios WHERE idUsuario =?`
         let usuario = await conn.query(sqlUser, [request?.idUsuario]).catch((error) => { throw error })
-        let normasAImportar = [...request.normas]
         for (const n of normasAImportar) {
             try {
                 let sqlEvento = `INSERT INTO trazabilidad (idNorma,negocio,operacion,usuario,tipoOperacion) VALUES (?,'SDIN',?,?,10)`;
@@ -691,7 +756,6 @@ async function importarNormasPublicadasBO(request) {
             } catch (error) {
                 console.error("Error al registrar evento:", error);
                 throw error
-                // Puedes decidir si quieres lanzar una excepción aquí o manejar el error de alguna otra manera
             }
         }
 
@@ -732,9 +796,11 @@ function traerNormas(request) {
         LEFT OUTER JOIN sdin_normas_relaciones rel ON rel.idNormaOrigen = a.idNormaSDIN
         LEFT OUTER JOIN sdin_relaciones_tipos rel_tipo ON rel.idRelacion = rel_tipo.idRelacion
         LEFT OUTER JOIN dj_analisis_epistemologico epi ON epi.idNormaSDIN = a.idNormaSDIN
+        LEFT OUTER JOIN sdin_normas_dependencias snd ON snd.idNorma = a.idNormaSDIN
         /* LEFT OUTER JOIN dj_valores_formularios vf1 ON epi.valoresFormulario3 = vf1.idValoresFormulario
         LEFT OUTER JOIN dj_valores_formularios vf2 ON epi.valoresFormulario4 = vf2.idValoresFormulario */
         LEFT OUTER JOIN dj_valores_formularios vf5 ON epi.valoresFormulario5 = vf5.idValoresFormulario
+        LEFT OUTER JOIN dj_analisis_epistemologico dan ON dan.idNormaSDIN = a.idNormaSDIN
         WHERE 1=1 
         AND b.estado = 1
         AND c.estado = 1
@@ -816,7 +882,7 @@ function traerNormas(request) {
                         break;
                     case ('dependencias'):
                         if (request.dependencias.dependencias?.length > 0) {
-                            sql += ` AND (${request.dependencias.dependencias.map(n => `JSON_CONTAINS (dependencias, '${n}', '$.dependencias')`).join(' OR ')})`;
+                            sql += ` AND (${request.dependencias.dependencias.map(n => `snd.idDependencia = ${n} AND snd.estado = 1`).join(' OR ')})`;
                         }
                         break;
                     case ('observaciones'):
@@ -826,28 +892,37 @@ function traerNormas(request) {
                         if (!request.palabras || !request.tiposPalabras || request.palabras == '' || request.tiposPalabras == null) {
                             break;
                         }
-                        if (request.tiposPalabras == 1) { // frase exacta
+                        /* if (request.tiposPalabras == 1) { // frase exacta
                             sql += ` AND UPPER(c.normaSumario) = UPPER('${request.palabras}')`
                             break;
-                        }
-                        if (request.tiposPalabras == 2) { //con las palabras
-                            sql += ` AND UPPER(c.normaSumario) LIKE UPPER('% ${request.palabras} %')`
+                        } */
+                        if (request.tiposPalabras == 1) { // Frase exacta con expresión regular
+                            let condicion = `UPPER(c.normaSumario) REGEXP '[[:<:]]${request.palabras}[[:>:]]'`;
+                            sql += ` AND (${condicion})`;
                             break;
                         }
-                        if (request.tiposPalabras == 3) { //sin las palabras
-                            sql += ` AND UPPER(c.normaSumario) NOT LIKE UPPER('% ${request.palabras} %')`
+                        
+                        if (request.tiposPalabras == 2) { // Con las palabras
+                            let palabrasArray = request.palabras.split(" ");
+                            let condiciones = palabrasArray.map(p => `UPPER(c.normaSumario) REGEXP '[[:<:]]${p}[[:>:]]'`);
+                            let condicion = condiciones.join(" AND ");
+                            sql += ` AND (${condicion})`;
+                            break;
+                        }                                              
+                        if (request.tiposPalabras == 3) { // Sin las palabras
+                            let palabrasArray = request.palabras.split(" ");
+                            let condiciones = palabrasArray.map(p => `NOT (UPPER(c.normaSumario) REGEXP '[[:<:]]${p}[[:>:]]')`);
+                            let condicion = condiciones.join(" AND ");
+                            sql += ` AND (${condicion})`;
                             break;
                         }
-                        if (request.tiposPalabras == 4) { //con alguna de las palabras
-                            let condiciones = ''
-                            for (let i = 1; i < request.palabras.length; i++) {
-                                condiciones += String(` OR (UPPER(c.normaSumario) LIKE UPPER('% ${request.palabras[i]} %'))`)
+                        
+                        if (request.tiposPalabras == 4) { // con alguna de las palabras exactas
+                            let condiciones = '';
+                            for (let i = 0; i < request.palabras.length; i++) {
+                                condiciones += ` OR (UPPER(c.normaSumario) LIKE UPPER('% ${request.palabras[i]} %') OR UPPER(c.normaSumario) LIKE UPPER('${request.palabras[i]} %') OR UPPER(c.normaSumario) LIKE UPPER('% ${request.palabras[i]}'))`;
                             }
-                            if (request.palabras.length === 1) {
-                                sql += ` AND (UPPER(c.normaSumario) LIKE UPPER('% ${request.palabras[0]} %'))`
-                            } else {
-                                sql += ` AND ((UPPER(c.normaSumario) LIKE UPPER('% ${request.palabras[0]} %'))${condiciones})`
-                            }
+                            sql += ` AND (${condiciones.substring(4)})`;
                             break;
                         }
                         break;
@@ -940,6 +1015,17 @@ function traerNormas(request) {
                         let form = `formulario${request[`${p}`]}`
                         sql+= ` AND epi.${form} = 1`
                         break;
+                    case ('idRama'):
+                        if(request.idRama === -1) {
+                            break;
+                        } else {
+                            sql += ` AND sdin_ramas.idRama = ${request.idRama}`
+                        }
+                        break;
+                    case ('idAnexoDJ'):
+                        sql = String(sql) + String(` AND dan.${p}=?`);
+                        params.push(request[`${p}`])
+                        break;
                     default:
                         if (p !== 'calcularTotal' && p !== 'limite' && p !== 'paginaActual' && p !== 'campo' && p !== 'orden' && p !== 'tipoFecha' && p !== 'offset' && p !== 'palabras') {
                             sql = String(sql) + String(` AND c.${p}=?`);
@@ -977,10 +1063,9 @@ function traerNormas(request) {
                         break;
                 }
             }
-
+            // console.log(sql)
             res.normas = await conn.query(paginarQuery(request, sql), params) //Agrega LIMIT - OFFSET a la query
                 .catch(error => { throw error });
-            console.log(sql, params)
         }
         catch (error) {
             console.log(error, paginarQuery(request, sql), params)
@@ -992,6 +1077,7 @@ function traerNormas(request) {
         }
     });
 }
+
 
 async function traerNorma(request) {
     let results;
@@ -1173,16 +1259,16 @@ async function crearNormaSDIN(request) {
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);`;
         let sqlCrearEstado = `INSERT INTO sdin_normas_estados (idNormaSDIN, usuarioCarga, idNormasEstadoTipo)
             VALUES (?, ?, 15);`;
-        
+
         let sqlArchivoTextoActualizado
-        if (request.textoActualizadoS3 !== null){
+        if (request.textoActualizadoS3 !== null || request.contenidoEditorTextoActualizado){
             sqlArchivoTextoActualizado = `
             INSERT INTO sdin_normas_textos_actualizados (idNormaSDIN,textoActualizado,archivo,archivoS3)
-            VALUES (?,NULL,?,?)
+            VALUES (?,?,?,?)
             `
         }
         let sqlArchivoAdjunto
-        if (request.adjuntoS3 !== null){
+        if (request.adjuntoS3 !== null) {
             sqlArchivoAdjunto = `
             INSERT INTO sdin_adjuntos (idNormaSDIN,archivo,archivoS3,usuarioCarga,estado)
             VALUES (?,?,?,?,1)
@@ -1213,6 +1299,16 @@ async function crearNormaSDIN(request) {
             .catch((error) => {
                 throw error
             })
+        // ACA PODRIA AGREGAR EL TEXTO ACTUALIZADO (USANDO LA FUNCION QUE EXISTE DE EDITAR TEXTO ACTUALIZADO)
+        /* if (request.contenidoEditorTextoActualizado){
+            let reqContentActualizado = {
+                idNormaSDIN : idNormaSDIN,
+                idUsuario : request.usuarioCarga,
+                textoActualizado : request?.contenidoEditorTextoActualizado //Representa si el usuario en la creacion uso el editor de TA
+            }
+            await editarTextoActualizado(reqContentActualizado)    
+            .catch((error)=>{throw error})
+        } */
 
         for (const dep of request.dependencias) {
             await conn.query(`INSERT INTO sdin_normas_dependencias (idNorma, idDependencia) VALUES (?,?)`, [norma.insertId, dep.idDependencia])
@@ -1252,19 +1348,19 @@ async function crearNormaSDIN(request) {
                 })
         }
         if (sqlArchivoTextoActualizado){
-            await conn.query(sqlArchivoTextoActualizado,[idNormaSDIN,request.nombreTextoActualizado,request.textoActualizadoS3])
+            await conn.query(sqlArchivoTextoActualizado,[idNormaSDIN,request.contenidoEditorTextoActualizado,request.nombreTextoActualizado,request.textoActualizadoS3])
             .catch((error)=>{
                 throw error
             })
         }
-        if (sqlArchivoAdjunto){
-            await conn.query(sqlArchivoAdjunto,[idNormaSDIN,request.nombreAdjunto,request.adjuntoS3,request.usuarioCarga])
-            .catch((error)=>{
-                throw error
-            })
+        if (sqlArchivoAdjunto) {
+            await conn.query(sqlArchivoAdjunto, [idNormaSDIN, request.nombreAdjunto, request.adjuntoS3, request.usuarioCarga])
+                .catch((error) => {
+                    throw error
+                })
         }
 
-            
+
         await conn.commit();
 
     } catch (error) {
@@ -1355,6 +1451,12 @@ async function editarNormasSDIN(request) {
         //console.log("EDITAR NORMA METADATOS",newMetadatos)
         let sql = `UPDATE sdin_normas_metadatos SET ${metadatos} WHERE idNormaSDIN IN (?)`;
         params.push(request.normas)
+        //ahora el metadato de idReparticion pasa a ser el organismo de bo a ser dependencia en sdin necesito meter
+        // en sdin_normas_dependencias este registro.
+        let sqlSDINDependencia
+        if (request.metadatos.idReparticion && request.metadatos.idReparticion !== null){
+            sqlSDINDependencia = `INSERT INTO sdin_normas_dependencias (idNorma, idDependencia) VALUES (?,?)`
+        }
 
         //Registro el evento 'editar norma'
         let sqlUser = `SELECT apellidoNombre FROM sdin_usuarios WHERE idUsuario =?`
@@ -1374,7 +1476,9 @@ async function editarNormasSDIN(request) {
 
         await conn.beginTransaction();
         await conn.query(sql, params)
-
+        if (sqlSDINDependencia){
+            await conn.query(sqlSDINDependencia,[request.normas[0],request.metadatos.idReparticion])
+        }
         await guardarLog(conn, sql, params, request)
 
         await conn.batch(sqlEvento, paramsEvento)
@@ -1400,8 +1504,9 @@ async function editarArchivoTextoActualizadoSDIN(request) {
 
         let registroTextoActualizado = await traerTextoActualizadoPorNormaId(request.normas[0])
         let sql
+        //DE LA QUERY DE ABAJO ELIMINO LA PARTE DE TEXTOACTUALIZADO = NULL
         if (registroTextoActualizado.length !== 0) {
-            sql = `UPDATE sdin_normas_textos_actualizados SET ${metadatos}, textoActualizado = NULL WHERE idNormaSDIN IN (?)`;
+            sql = `UPDATE sdin_normas_textos_actualizados SET ${metadatos} WHERE idNormaSDIN IN (?)`;
         } else {
             sql = `INSERT INTO sdin_normas_textos_actualizados (archivo, archivoS3, idNormaSDIN, textoActualizado) VALUES (?,?,?,NULL)`;
         }
@@ -1468,7 +1573,6 @@ async function borrarNormasSDIN(request) {
             } catch (error) {
                 console.error("Error al registrar evento:", error);
                 throw error
-                // Puedes decidir si quieres lanzar una excepción aquí o manejar el error de alguna otra manera
             }
         }
 
@@ -1752,16 +1856,28 @@ async function eliminarRelacion(request) {
     }
 }
 
-function traerTemas() {
-    return new Promise((resolve, reject) => {
-        sql = ` SELECT idTema, tema, descripcion FROM sdin_temas WHERE estado=1 `;
-
-        connection.pool.query(sql, function (error, results) {
-            if (error) {
-                reject(error);
-            }
-            resolve(results);
-        });
+function traerTemas(request) {
+    return new Promise(async (resolve, reject) => {
+        let sql = ` SELECT idTema, tema, descripcion FROM sdin_temas WHERE estado=1 `;
+        let res = []
+        let conn = await connection.poolPromise.getConnection()
+            .catch(error => { throw error });
+        try {
+            //Saca el total de logs contemplando los filtros de búsqueda
+            res.totalTemas = await conn.query('SELECT COUNT(idTema) FROM' + sql.split(/FROM(.*)/s)[1])
+                .catch(error => { throw error });
+            res.temas = await conn.query(paginarQuery(request, sql)) //Agrega LIMIT - OFFSET a la query
+                .catch(error => { throw error });
+        }
+        catch (error) {
+            console.log(error, paginarQuery(request, sql))
+            reject(error)
+        }
+        finally {
+            conn.release();
+            resolve(res);
+        }
+      
     });
 }
 
@@ -2216,8 +2332,9 @@ async function editarTextoActualizado(request) {
 
         let registroTextoActualizado = await traerTextoActualizadoPorNormaId(request.idNormaSDIN)
         let sql
+        //EN LA QUERY DE ABAJO QUITO ARCHIVO = NULL Y ARCHIVOS3=NULL
         if (registroTextoActualizado.length !== 0) {
-            sql = `UPDATE sdin_normas_textos_actualizados SET textoActualizado=?, archivo=NULL, archivoS3=NULL WHERE idNormaSDIN=?`;
+            sql = `UPDATE sdin_normas_textos_actualizados SET textoActualizado=? WHERE idNormaSDIN=?`;
         } else {
             sql = `INSERT INTO sdin_normas_textos_actualizados (textoActualizado, idNormaSDIN) VALUES (?, ?)`;
         }
@@ -2324,7 +2441,8 @@ function traerTemasABM(request) {
 
         sql = `SELECT a.*, b.rama 
                 FROM sdin_temas a 
-                LEFT OUTER JOIN sdin_ramas b ON a.idRama=b.idRama`;
+                LEFT OUTER JOIN sdin_ramas b ON a.idRama=b.idRama
+                ORDER BY a.tema`;
         let res = []
         let conn = await connection.poolPromise.getConnection()
             .catch(error => { throw error });
@@ -2444,27 +2562,28 @@ async function habilitarTema(request) {
     }
 }
 
-function traerClasesABM() {
-    return new Promise((resolve, reject) => {
+function traerClasesABM(request) {
+    return new Promise(async (resolve, reject) => {
 
-        sql = `SELECT * FROM sdin_clases WHERE estado = 1;`;
-        params = [];
-
-        connection.pool.getConnection(function (err, conn) {
-            if (err) throw err; // not connected!
-
-            // Use the connection
-            conn.query(sql, params, function (error, results, fields) {
+        sql = `SELECT * FROM sdin_clases WHERE estado = 1`;
+        let res = []
+            let conn = await connection.poolPromise.getConnection()
+                .catch(error => { throw error });
+            try {
+                //Saca el total de logs contemplando los filtros de búsqueda
+                res.totalClases = await conn.query('SELECT COUNT(*) FROM' + sql.split(/FROM(.*)/s)[1])
+                    .catch(error => { throw error });
+                res.respuesta = await conn.query(paginarQuery(request, sql)) //Agrega LIMIT - OFFSET a la query
+                    .catch(error => { throw error });
+            }
+            catch (error) {
+                console.log(error, paginarQuery(request, sql))
+                reject(error)
+            }
+            finally {
                 conn.release();
-                if (err) {
-                    reject(err);
-                }
-                resolve(results);
-
-                // Handle error after the release.
-                if (error) throw error;
-            });
-        });
+                resolve(res);
+            }
     });
 }
 
@@ -2567,27 +2686,28 @@ async function eliminarClases(request) {
     }
 }
 
-function traerRelacionesTiposABM() {
-    return new Promise((resolve, reject) => {
+function traerRelacionesTiposABM(request) {
+    return new Promise(async (resolve, reject) => {
 
-        sql = `SELECT * FROM sdin_relaciones_tipos WHERE estado = 1;`;
-        params = [];
-
-        connection.pool.getConnection(function (err, conn) {
-            if (err) throw err; // not connected!
-
-            // Use the connection
-            conn.query(sql, params, function (error, results, fields) {
+        sql = `SELECT * FROM sdin_relaciones_tipos WHERE estado = 1`;
+        let res = []
+            let conn = await connection.poolPromise.getConnection()
+                .catch(error => { throw error });
+            try {
+                //Saca el total de logs contemplando los filtros de búsqueda
+                res.totalRelacionesTipos = await conn.query('SELECT COUNT(*) FROM' + sql.split(/FROM(.*)/s)[1])
+                    .catch(error => { throw error });
+                res.respuesta = await conn.query(paginarQuery(request, sql)) //Agrega LIMIT - OFFSET a la query
+                    .catch(error => { throw error });
+            }
+            catch (error) {
+                console.log(error, paginarQuery(request, sql))
+                reject(error)
+            }
+            finally {
                 conn.release();
-                if (err) {
-                    reject(err);
-                }
-                resolve(results);
-
-                // Handle error after the release.
-                if (error) throw error;
-            });
-        });
+                resolve(res);
+            }
     });
 }
 
@@ -2665,7 +2785,35 @@ async function eliminarRelacionesTipos(request) {
     }
 }
 
-async function traerJerarquiaTemas() {
+async function traerJerarquiaTemas(request) {
+    return new Promise(async (resolve, reject) => {
+        let sql = `SELECT a.*, b.tema AS tema, c.tema AS temaHijo 
+            FROM sdin_temas_jerarquia a
+            LEFT OUTER JOIN sdin_temas b ON a.idTema=b.idTema
+            LEFT OUTER JOIN sdin_temas c ON a.idTemaHijo=c.idTema
+            WHERE a.estado=1 AND a.idNormaHijo IS NULL`;
+            let res = []
+            let conn = await connection.poolPromise.getConnection()
+                .catch(error => { throw error });
+            try {
+                //Saca el total de logs contemplando los filtros de búsqueda
+                res.totalJerarquia = await conn.query('SELECT COUNT(*) FROM' + sql.split(/FROM(.*)/s)[1])
+                    .catch(error => { throw error });
+                res.jerarquia = await conn.query(paginarQuery(request, sql)) //Agrega LIMIT - OFFSET a la query
+                    .catch(error => { throw error });
+            }
+            catch (error) {
+                console.log(error, paginarQuery(request, sql))
+                reject(error)
+            }
+            finally {
+                conn.release();
+                resolve(res);
+            }
+    });
+}
+
+async function traerJerarquiaTemasArbol() {
     return new Promise((resolve, reject) => {
         let sql = `SELECT a.*, b.tema AS tema, c.tema AS temaHijo 
             FROM sdin_temas_jerarquia a
@@ -2700,28 +2848,31 @@ async function traerJerarquiaNorma() {
     });
 }
 
-function traerRamasABM() {
-    return new Promise((resolve, reject) => {
+async function traerRamasABM(request) {
+    
+    let conn = await connection.poolPromise.getConnection().catch(e => { throw e });
+    try {
+        await conn.beginTransaction().catch(e => { throw e });
+        let res = {}
+        let sql = `SELECT idRama, rama, descripcion FROM sdin_ramas WHERE estado=1`;
+        let sqlTotal = `SELECT COUNT(*) as total FROM sdin_ramas WHERE estado = 1;`
+        let params = []
+        let [total] = await conn.query(sqlTotal, params)
+        res.total = total.total
 
-        sql = `SELECT * FROM sdin_ramas WHERE estado = 1;`;
-        params = [];
+        if(request.paginaActual && request.limite) {
+            res.ramas = await conn.query(paginarQuery(request, sql)) //Agrega LIMIT - OFFSET a la query
+            .catch(error => { throw error });
+        }
+        await conn.commit()
+        return res
 
-        connection.pool.getConnection(function (err, conn) {
-            if (err) throw err; // not connected!
-
-            // Use the connection
-            conn.query(sql, params, function (error, results, fields) {
-                conn.release();
-                if (err) {
-                    reject(err);
-                }
-                resolve(results);
-
-                // Handle error after the release.
-                if (error) throw error;
-            });
-        });
-    });
+    } catch (error) {
+        await conn.rollback();
+        throw error;
+    } finally {
+        if (conn) conn.close();
+    }
 }
 
 async function agregarRamas(request) {
@@ -2798,27 +2949,28 @@ async function eliminarRamas(request) {
     }
 }
 
-function traerCausalesABM() {
-    return new Promise((resolve, reject) => {
+function traerCausalesABM(request) {
+    return new Promise(async (resolve, reject) => {
 
-        sql = `SELECT * FROM dj_causales WHERE estado = 1;`;
-        params = [];
-
-        connection.pool.getConnection(function (err, conn) {
-            if (err) throw err; // not connected!
-
-            // Use the connection
-            conn.query(sql, params, function (error, results, fields) {
+        sql = `SELECT * FROM dj_causales WHERE estado = 1`;
+        let res = []
+            let conn = await connection.poolPromise.getConnection()
+                .catch(error => { throw error });
+            try {
+                //Saca el total de logs contemplando los filtros de búsqueda
+                res.totalCausales = await conn.query('SELECT COUNT(*) FROM' + sql.split(/FROM(.*)/s)[1])
+                    .catch(error => { throw error });
+                res.causales = await conn.query(paginarQuery(request, sql)) //Agrega LIMIT - OFFSET a la query
+                    .catch(error => { throw error });
+            }
+            catch (error) {
+                console.log(error, paginarQuery(request, sql))
+                reject(error)
+            }
+            finally {
                 conn.release();
-                if (err) {
-                    reject(err);
-                }
-                resolve(results);
-
-                // Handle error after the release.
-                if (error) throw error;
-            });
-        });
+                resolve(res);
+            }
     });
 }
 
@@ -2920,27 +3072,30 @@ async function eliminarCausales(request) {
     }
 }
 
-function traerPatologiasABM() {
-    return new Promise((resolve, reject) => {
+function traerPatologiasABM(request) {
+    return new Promise(async (resolve, reject) => {
 
-        sql = `SELECT * FROM dj_patologias_normativas WHERE estado = 1;`;
+        sql = `SELECT * FROM dj_patologias_normativas WHERE estado = 1`;
         params = [];
 
-        connection.pool.getConnection(function (err, conn) {
-            if (err) throw err; // not connected!
-
-            // Use the connection
-            conn.query(sql, params, function (error, results, fields) {
+        let res = []
+            let conn = await connection.poolPromise.getConnection()
+                .catch(error => { throw error });
+            try {
+                //Saca el total de logs contemplando los filtros de búsqueda
+                res.totalPatologias = await conn.query('SELECT COUNT(*) FROM' + sql.split(/FROM(.*)/s)[1])
+                    .catch(error => { throw error });
+                res.data = await conn.query(paginarQuery(request, sql)) //Agrega LIMIT - OFFSET a la query
+                    .catch(error => { throw error });
+            }
+            catch (error) {
+                console.log(error, paginarQuery(request, sql))
+                reject(error)
+            }
+            finally {
                 conn.release();
-                if (err) {
-                    reject(err);
-                }
-                resolve(results);
-
-                // Handle error after the release.
-                if (error) throw error;
-            });
-        });
+                resolve(res);
+            }
     });
 }
 
@@ -3219,6 +3374,10 @@ async function borrarPublicacion(request) {
             .catch((error) => {
                 throw error
             })
+
+        //Devolver estado en sdin
+        await conn.query(`UPDATE sdin_normas_estados SET idNormasEstadoTipo = 1 WHERE idNormaSDIN = ?`, [request.idNormaSDIN])
+
         //Registro el evento 'despublicar norma'
         let sqlUser = `SELECT mig_nombre FROM sdin_usuarios WHERE idUsuario =?`
         let usuario = await conn.query(sqlUser, [request?.idUsuario]).catch((error) => { throw error })
@@ -3236,17 +3395,7 @@ async function borrarPublicacion(request) {
     }
 }
 
-async function normaTiposSDIN() {
-    return new Promise((resolve, reject) => {
-        let sql = `SELECT * FROM sdin_normas_tipos WHERE estado=1;`;
-        connection.pool.query(sql, function (error, results) {
-            if (error) {
-                reject(error);
-            }
-            resolve(results);
-        });
-    });
-}
+
 
 async function editarNormaTipoSDIN(data) {
     return new Promise((resolve, reject) => {
@@ -3367,11 +3516,74 @@ async function traerDependencias(request) {
     return results;
 }
 
+async function normaTiposSDIN(request) {
+    let conn = await connection.poolPromise.getConnection().catch(e => { throw e });
+    try {
+        await conn.beginTransaction().catch(e => { throw e });
+        let res = {}
+        let sql = `SELECT * FROM sdin_normas_tipos WHERE estado = 1`;
+        let sqlTotal = `SELECT COUNT(*) as total from sdin_normas_tipos WHERE estado = 1`
+        let params = []
+        let [total] = await conn.query(sqlTotal, params)
+        
+        if(request.paginaActual && request.limite) {
+            sql = paginarQuery(request, sql)
+        }
+        res.tipos = await conn.query(sql, params)
+        res.total = total.total
+        
+        await conn.commit()
+        return res
+
+    } catch (error) {
+        await conn.rollback();
+        throw error;
+    } finally {
+        if (conn) conn.close();
+    }
+}
+
+// OBLIGATORIOS: dependencia, sigla, org emisor, nivel, fechadesde.
+async function comprobarDependenciaRepetida(data) {
+    return new Promise((resolve, reject) => {
+        let params = []
+        let sql = `SELECT * FROM sdin_dependencias WHERE dependencia=? AND sigla=? AND idOrganismoEmisor=? AND fechaDesde=? AND nivel = ? AND orden=? AND idNormaSDIN = ?`
+
+        params = [data.dependencia, data.sigla, data.idOrganismo, data.fechaDesde, data.nivel, data.orden, data.idNormaSDIN]
+
+        if (data.fechaHasta === '' || data.fechaHasta === null) {
+            sql += ' AND fechaHasta IS NULL'
+        } else {
+            sql += ' AND fechaHasta = ?'
+            params.push(data.fechaHasta)
+        }
+
+        if (data.padre === '' || data.padre === null) {
+            sql += ' AND padre IS NULL'
+        } else {
+            sql += ' AND padre = ?'
+            params.push(data.padre)
+        }
+
+        connection.pool.query(sql, params, function (error, results) {
+            if (error) {
+                reject(error);
+            }
+            resolve(results);
+        });
+
+    });
+}
+
 async function agregarDependenciasSDIN(data) {
     return new Promise((resolve, reject) => {
         let sql = `INSERT INTO sdin_dependencias 
-        (dependencia,sigla,orden,idOrganismoEmisor,padre, fechaDesde, fechaHasta, nivel, idNormaSDIN) 
+        (dependencia,sigla,orden,idOrganismoEmisor,padre, fechaDesde, fechaHasta, nivel, idNormaSDIN)
         VALUES (?,?,?,?,?,?,?,?,?);`;
+
+        if (data.fechaHasta === '') {
+            data.fechaHasta = null
+        }
         let params = [data.dependencia, data.sigla, data.orden, data.idOrganismo,
         data.padre, data.fechaDesde, data.fechaHasta, data.nivel, data.idNormaSDIN]
         connection.pool.query(sql, params, function (error, results) {
@@ -3587,6 +3799,7 @@ async function borrarAdjunto(request) {
 }
 
 async function agregarDependenciaNormas(request) {
+    console.log("---REQUEST EDITAR DEPENDENCIA---",request)
     let sql = `INSERT INTO sdin_normas_dependencias (idNorma, idDependencia) VALUES (?,?)`;
     let conn = await connection.poolPromise.getConnection().catch(e => { throw e });
     try {
@@ -3783,6 +3996,6 @@ module.exports = {
     traerEstadosSDIN, traerNiveles, editarArchivoTextoActualizadoSDIN, traerTrazabilidad, traerTrazabilidadUsuarios,
     traerImagenesPorIdNormaSDIN, traerImagenPorIdNormaSDIN,
     traerTiposTrazabilidad, agregarAdjunto, borrarAdjunto, borrarDependenciaNormas,
-    editarDescriptor
+    editarDescriptor, comprobarDependenciaRepetida, traerJerarquiaTemasArbol
 
 }
